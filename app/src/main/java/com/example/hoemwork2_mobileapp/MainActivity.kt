@@ -35,7 +35,7 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.hw02.ui.theme.HW02Theme
+import com.example.hoemwork2_mobileapp.ui.theme.Hoemwork2_mobileappTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.content.pm.PackageManager
@@ -49,6 +49,17 @@ import androidx.core.content.ContextCompat
 import android.location.LocationManager
 
 import android.util.Log
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.RadioButton
+import androidx.compose.ui.Alignment
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.livedata.observeAsState
+
 
 
 const val logingConst = "log"
@@ -58,12 +69,12 @@ class MainActivity : ComponentActivity() {
     fun requestPermission() {
         if (ContextCompat.checkSelfPermission(
                 this,
-                android.Manifest.permission.ACCESS_FINE_LOCATION
+                Manifest.permission.ACCESS_FINE_LOCATION
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             ActivityCompat.requestPermissions(
                 this,
-                arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION),
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
                 permission
             )
         }
@@ -75,12 +86,38 @@ class MainActivity : ComponentActivity() {
 
                 requestPermission()
                 Location.create(this)
+
                 val viewModel = MyView()
                 Welcome(this, viewModel)
             }
         }
     }
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == permission) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
+            } else {
+
+            }
+        }
+    }
 }
+val loggingInterceptor = HttpLoggingInterceptor().also {
+    it.level = HttpLoggingInterceptor.Level.BODY
+}
+val okHttpClient = OkHttpClient.Builder()
+    .addInterceptor(loggingInterceptor)
+    .build();
+val retrofit = Retrofit.Builder()
+    .baseUrl("https://api.weatherapi.com/")
+    .client(okHttpClient)
+    .addConverterFactory(GsonConverterFactory.create())
+    .build()
 interface Api {
     @GET("v1/current.json")
     suspend fun getWeather(
@@ -90,8 +127,9 @@ interface Api {
 
 
 }
+val weatherApiService: Api = retrofit.create(Api::class.java)
 object Location {
-    private val cordinates = null
+    private var cordinates: Pair<Double, Double>? = null
     fun getLocation(): cordinates? {
         return cordinates
     }
@@ -144,7 +182,7 @@ class MyView() : ViewModel() {
         try {
             if (ContextCompat.checkSelfPermission(
                     context,
-                    android.Manifest.permission.ACCESS_FINE_LOCATION
+                    Manifest.permission.ACCESS_FINE_LOCATION
                 ) == PackageManager.PERMISSION_GRANTED
             ) {
                 viewModelScope.launch {
@@ -176,7 +214,7 @@ class MyView() : ViewModel() {
         viewModelScope.launch {
             try {
                 val apiKey = getApiKey()
-                val weather = Api.getWeather(city.name, apiKey)
+                val weather = weatherApiService.getWeather(city.name, apiKey)
                 _weather.postValue(weather)
             } catch (e: Exception) {
                 Log.e(logingConst, e.toString())
@@ -231,23 +269,37 @@ data class Data(
     val gust_kph: Double,
     val air_quality: Air
 )
+enum class TemperatureUnit {
+    CELSIUS,
+    FAHRENHEIT
+}
+object Settings {
+    val temperatureType = MutableLiveData(TemperatureUnit.CELSIUS)
+}
 
 @Composable
-fun Welcome(context: MainActivity, viewModel:ViewModel ) {
+fun Welcome(context: MainActivity, viewModel:MyView ) {
+    val navController = rememberNavController()
 
-
-    val viewModel = MyView()
     viewModel.fetchWeather(
         context,
-        Api,
+        weatherApiService,
         "691d4bacab5c4fa4bec191058231411"
     )
+
     NavHost(navController = navController, startDestination = "Screen1") {
         composable(
             route = "Screen1",
-        ) {  val weather by viewModel.currentWeatherData
+        ) {
+            val temperatureType = Settings.temperatureType
 
-            weather.let { Text(text = "Temperature : ${it.current.temp_c}°C")}
+            val weather = viewModel.currentWeatherData.observeAsState()
+
+            if (temperatureType.value == TemperatureUnit.CELSIUS)
+                Text(text = "Temperature : ${weather.current.temp_c}°C")
+            else
+                Text(text = "Temperature : ${weather.current.temp_f}°C")
+
             Text(
                 text = "Welcome to the Tatevik's app",
                 fontSize = 24.sp,
@@ -260,24 +312,88 @@ fun Welcome(context: MainActivity, viewModel:ViewModel ) {
             ) {
                 Text(text = "Let's go to the second screen")
             }
+            Button(
+                onClick = { navController.navigate("Setting Screen") },
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Text(text = "Let's go to the setting screen to change the temperature unit")
+            }
+
+        }
+        composable(
+            route = "Setting Screen",
+        ) {
+            val temperatureType = Settings.temperatureType
+
+            Text(text = "Temperature unit change")
+            Spacer(modifier = Modifier.height(10.dp) )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    RadioButton(
+                        selected = temperatureType.value == TemperatureUnit.CELSIUS,
+                        onClick = {
+                            temperatureType.postValue(TemperatureUnit.CELSIUS)
+                        }
+                    )
+                    Text(text = "Celsius")
+                }
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    RadioButton(
+                        selected = temperatureType.value == TemperatureUnit.FAHRENHEIT,
+                        onClick = {
+                            temperatureType.postValue(TemperatureUnit.FAHRENHEIT)
+                        }
+                    )
+                    Text(text = "Fahrenheit")
+                }
+            }
+            Button(
+                onClick = { navController.navigate("Screen1") },
+                modifier = Modifier.padding(10.dp)
+            ) {
+                Text("Back to the first screen")
+            }
+
 
         }
         composable(
             route = "Screen2",
         ) {
+            val temperatureType = Settings.temperatureType
+
             var cities = listOf("Yerevan", "Washington", "Madrid")
+            val weather = viewModel.currentWeatherData.observeAsState()
             LazyColumn {
                 items(cities) { city ->
                     Text(text = city, fontSize = 16.sp, modifier = Modifier.padding(16.dp))
                     if (city == "Yerevan"){
                         Text(text = "Yerevan is the capital of Armenia", fontSize = 16.sp, modifier = Modifier.padding(16.dp))
-                        // I did not understand how to have my image in android studio, so i just wrote your_image, supposing
-                        // that I have the image in drawable folder, I would write the name of the image instead of
-                        // your_image
-                        val cityImage: Painter = painterResource(id = R.drawable.your_image)
+                        if (weather.current.temp_c != null) {
+                            if (temperatureType.value == TemperatureUnit.CELSIUS) {
+                                Text(
+                                    text = "Temperature : ${weather.current.temp_c}°C",
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            } else
+                                Text(
+                                    text = "Temperature : ${weather.current.temp_f}°C",
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                        }
+
+                        else
+                            Text(text = "Humidity : ${weather.current.humidity}°C", fontSize = 16.sp, modifier = Modifier.padding(16.dp))
+                        val cityImage: Painter = painterResource(id = R.drawable.img)
+
                         Image(
                             painter = cityImage,
-
+                            contentDescription=null,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(200.dp)
@@ -285,26 +401,56 @@ fun Welcome(context: MainActivity, viewModel:ViewModel ) {
                     }
                     if (city =="Washington"){
                         Text(text = "Washington is the capital of US", fontSize = 16.sp, modifier = Modifier.padding(16.dp))
-                        // I did not understand how to have my image in android studio, so i just wrote your_image, supposing
-                        // that I have the image in drawable folder, I would write the name of the image instead of
-                        // your_image
-                        val cityImage: Painter = painterResource(id = R.drawable.your_image)
+                        if (weather.current.temp_c != null) {
+                            if (temperatureType.value == TemperatureUnit.CELSIUS) {
+                                Text(
+                                    text = "Temperature : ${weather.current.temp_c}°C",
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            } else
+                                Text(
+                                    text = "Temperature : ${weather.current.temp_f}°C",
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                        }
+
+                        else
+                            Text(text = "Humidity : ${weather.current.humidity}°C", fontSize = 16.sp, modifier = Modifier.padding(16.dp))
+                        val cityImage: Painter = painterResource(id = R.drawable.img_1)
                         Image(
                             painter = cityImage,
-
+                            contentDescription=null,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(200.dp)
                         )}
                     if (city =="Madrid"){
                         Text(text = "Madrid is the capital of Spain", fontSize = 16.sp, modifier = Modifier.padding(16.dp))
-                        // I did not understand how to have my image in android studio, so i just wrote your_image, supposing
-                        // that I have the image in drawable folder, I would write the name of the image instead of
-                        // your_image
-                        val cityImage: Painter = painterResource(id = R.drawable.your_image)
+
+                        if (weather.current.temp_c != null) {
+                            if (temperatureType.value == TemperatureUnit.CELSIUS) {
+                                Text(
+                                    text = "Temperature : ${weather.current.temp_c}°C",
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            } else
+                                Text(
+                                    text = "Temperature : ${weather.current.temp_f}°C",
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                        }
+
+                        else
+                            Text(text = "Humidity : ${weather.current.humidity}°C", fontSize = 16.sp, modifier = Modifier.padding(16.dp))
+
+                        val cityImage: Painter = painterResource(id = R.drawable.img_2)
                         Image(
                             painter = cityImage,
-
+                            contentDescription=null,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(200.dp)
@@ -312,8 +458,11 @@ fun Welcome(context: MainActivity, viewModel:ViewModel ) {
                 }
 
             }
-            BackHandler {
-                navController.popBackStack()
+            Button(
+                onClick = { navController.popBackStack() },
+                modifier = Modifier.padding(15.dp)
+            ) {
+                Text("Back to the first screen")
             }
 
         }
